@@ -115,8 +115,11 @@ def extract_quotes_with_playwright(max_pages: int = 5) -> list[dict]:
             else:
                 url = f"{BASE_URL}_{page_number}"
 
-            page.goto(url, wait_until="networkidle", timeout=60000)
-            page.wait_for_timeout(3000)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(5000)
+            except Exception:
+                continue
 
             # Grab visible text blocks from the rendered page
             texts = page.locator("a, div, span").all_inner_texts()
@@ -131,7 +134,6 @@ def extract_quotes_with_playwright(max_pages: int = 5) -> list[dict]:
                     continue
                 if not is_valid_author(author):
                     continue
-
                 if len(author) >= len(quote_text):
                     continue
 
@@ -142,7 +144,6 @@ def extract_quotes_with_playwright(max_pages: int = 5) -> list[dict]:
 
         browser.close()
 
-    # dedupe
     deduped = []
     seen = set()
     for q in quotes:
