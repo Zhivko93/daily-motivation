@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.brainyquote.com/topics/motivational-quotes"
 HEADERS = {
-    "User-Agent": "daily-motivational-quote-bot/1.1"
+    "User-Agent": "daily-motivational-quote-bot/1.2"
 }
 
 STATE_FILE = Path("sent_quotes.json")
@@ -75,8 +75,20 @@ def is_valid_author(text: str) -> bool:
         return False
     if len(text) < 2 or len(text) > 60:
         return False
-    if any(x in text.lower() for x in ["prev", "next", "grid", "list", "topics", "quotes"]):
+
+    junk = {
+        "home", "authors", "topics", "quote of the day", "top 100 quotes",
+        "professions", "birthdays", "about us", "contact us", "privacy",
+        "terms", "prev", "next", "grid", "list", "menu", "popular authors",
+        "recommended topics", "please enable javascript"
+    }
+    if text.lower() in junk:
         return False
+
+    # Author lines are usually fairly short and not sentence-like.
+    if text.endswith(".") or text.endswith("!") or text.endswith("?"):
+        return False
+
     return True
 
 
@@ -85,14 +97,24 @@ def is_valid_quote(text: str) -> bool:
         return False
     if len(text) < 15 or len(text) > 400:
         return False
-    junk = [
+
+    junk_contains = [
         "please enable javascript",
         "this site requires javascript",
-        "quote of the day",
         "recommended topics",
+        "quote of the day feeds",
+        "copyright",
+        "popular authors",
+        "do not sell my info",
     ]
-    if any(x in text.lower() for x in junk):
+    lower = text.lower()
+    if any(x in lower for x in junk_contains):
         return False
+
+    # Quotes should usually look sentence-like.
+    if not any(ch in text for ch in [".", "!", "?", ";", "'"]):
+        return False
+
     return True
 
 
@@ -113,38 +135,36 @@ def dedupe_quotes(quotes: list[dict]) -> list[dict]:
 def extract_quotes_from_html(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
 
-    # Collect visible anchor text in page order.
-    anchors = []
-    for a in soup.find_all("a"):
-        text = clean_text(a.get_text(" ", strip=True))
-        href = a.get("href", "")
-        if text:
-            anchors.append({"text": text, "href": href})
+    # Extract visible text lines in order.
+    raw_text = soup.get_text("\n", strip=True)
+    lines = [clean_text(line) for line in raw_text.split("\n")]
+    lines = [line for line in lines if line]
 
     quotes = []
 
-    # Heuristic: on the current page, quote text is followed by author text.
-    # We treat a longer sentence-like anchor followed by a shorter author-like anchor as a pair.
-    for i in range(len(anchors) - 1):
-        first = anchors[i]["text"]
-        second = anchors[i + 1]["text"]
+    # BrainyQuote currently exposes quote text followed by author text in order. :contentReference[oaicite:1]{index=1}
+    for i in range(len(lines) - 1):
+        quote_text = lines[i]
+        author = lines[i + 1]
 
-        if not is_valid_quote(first):
+        if not is_valid_quote(quote_text):
             continue
-        if not is_valid_author(second):
-            continue
-
-        # Quote should look more sentence-like than author.
-        if len(second) >= len(first):
+        if not is_valid_author(author):
             continue
 
-        # Avoid pairing obvious navigation items.
-        if second.lower() in {"home", "authors", "topics"}:
+        # Skip obvious page navigation and page-number sequences
+        if quote_text.lower() in {"prev", "next"}:
+            continue
+        if author.isdigit():
+            continue
+
+        # Avoid pairing very long quote-like text with another quote-like text
+        if len(author) >= len(quote_text):
             continue
 
         quotes.append({
-            "text": first.strip(" “”\""),
-            "author": second.strip(),
+            "text": quote_text.strip('“”" '),
+            "author": author.strip(),
         })
 
     return dedupe_quotes(quotes)
