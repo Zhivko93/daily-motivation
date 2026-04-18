@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-QUOTABLE_RANDOM_URL = "https://api.quotable.io/quotes/random"
+ZENQUOTES_RANDOM_URL = "https://zenquotes.io/api/random"
 STATE_FILE = Path("sent_quotes.json")
 
 
@@ -43,51 +43,35 @@ def quote_fingerprint(text: str, author: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def fetch_random_quotes(limit: int = 20) -> list[dict]:
-    params = {
-        "limit": limit,
-        "tags": "inspirational|wisdom|success",
-        "maxLength": 180,
-    }
-
-    response = requests.get(QUOTABLE_RANDOM_URL, params=params, timeout=30)
+def fetch_random_quote() -> dict:
+    response = requests.get(ZENQUOTES_RANDOM_URL, timeout=30)
     response.raise_for_status()
     data = response.json()
 
     if not isinstance(data, list) or not data:
-        raise RuntimeError("No quotes returned from Quotable.")
+        raise RuntimeError("No quote returned from ZenQuotes.")
 
-    quotes = []
-    for item in data:
-        content = (item.get("content") or "").strip()
-        author = (item.get("author") or "").strip()
+    item = data[0]
+    text = (item.get("q") or "").strip()
+    author = (item.get("a") or "").strip()
 
-        if not content or not author:
-            continue
+    if not text or not author:
+        raise RuntimeError("ZenQuotes returned an unusable quote.")
 
-        quotes.append({
-            "text": content,
-            "author": author,
-        })
-
-    if not quotes:
-        raise RuntimeError("No usable quotes returned from Quotable.")
-
-    return quotes
+    return {
+        "text": text,
+        "author": author,
+    }
 
 
-def pick_unsent_quote(quotes: list[dict], sent_quotes: set[str]) -> tuple[dict, str]:
-    unsent = []
-
-    for quote in quotes:
+def fetch_unsent_quote(sent_quotes: set[str], max_attempts: int = 20) -> tuple[dict, str]:
+    for _ in range(max_attempts):
+        quote = fetch_random_quote()
         fp = quote_fingerprint(quote["text"], quote["author"])
         if fp not in sent_quotes:
-            unsent.append((quote, fp))
+            return quote, fp
 
-    if not unsent:
-        raise RuntimeError("All fetched quotes have already been sent. Try again later.")
-
-    return random.choice(unsent)
+    raise RuntimeError("Could not fetch a new unsent quote after multiple attempts.")
 
 
 def send_to_discord(webhook_url: str, quote: dict) -> None:
@@ -107,8 +91,7 @@ def main() -> None:
     webhook_url = get_env("DISCORD_QUOTES_WEBHOOK_URL")
 
     sent_quotes = load_sent_quotes()
-    quotes = fetch_random_quotes(limit=20)
-    chosen_quote, fingerprint = pick_unsent_quote(quotes, sent_quotes)
+    chosen_quote, fingerprint = fetch_unsent_quote(sent_quotes)
 
     send_to_discord(webhook_url, chosen_quote)
 
