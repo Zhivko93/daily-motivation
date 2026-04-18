@@ -21,9 +21,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install requests playwright
-      
-      - run: python -m playwright install chromium
+      - run: pip install requests beautifulsoup4
 
       - run: python daily_motivational_quote_to_discord.py
         env:
