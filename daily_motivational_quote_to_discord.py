@@ -6,10 +6,11 @@ import re
 from pathlib import Path
 
 import requests
+from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.brainyquote.com/topics/motivational-quotes"
 HEADERS = {
-    "User-Agent": "daily-motivational-quote-bot/1.0"
+    "User-Agent": "daily-motivational-quote-bot/1.1"
 }
 
 STATE_FILE = Path("sent_quotes.json")
@@ -59,57 +60,8 @@ def fetch_page(page_number: int) -> str:
     return response.text
 
 
-def extract_quotes_from_html(html: str) -> list[dict]:
-    """
-    BrainyQuote page currently contains quote links followed by author links
-    in the page HTML. This parser intentionally stays simple and resilient.
-    """
-    results = []
-
-    pattern = re.compile(
-        r'【\d+†\s*(.*?)\s*】\s*【\d+†(.*?)】',
-        re.DOTALL,
-    )
-
-    # Also support raw HTML fallback if needed
-    if "【" in html and "†" in html:
-        pairs = pattern.findall(html)
-        for quote_text, author in pairs:
-            quote_text = clean_text(quote_text)
-            author = clean_text(author)
-
-            if not is_valid_quote(quote_text, author):
-                continue
-
-            results.append({"text": quote_text, "author": author})
-
-        return dedupe_quotes(results)
-
-    # Raw HTML parsing fallback
-    # Quote links often appear as title text inside anchor tags with the author nearby.
-    quote_pattern = re.compile(
-        r'<a[^>]*title="view quote"[^>]*>(.*?)</a>\s*<a[^>]*title="view author"[^>]*>(.*?)</a>',
-        re.DOTALL | re.IGNORECASE,
-    )
-
-    for quote_text, author in quote_pattern.findall(html):
-        quote_text = clean_text(strip_tags(quote_text))
-        author = clean_text(strip_tags(author))
-
-        if not is_valid_quote(quote_text, author):
-            continue
-
-        results.append({"text": quote_text, "author": author})
-
-    return dedupe_quotes(results)
-
-
-def strip_tags(text: str) -> str:
-    text = re.sub(r"<.*?>", "", text, flags=re.DOTALL)
-    return text
-
-
 def clean_text(text: str) -> str:
+    text = text.replace("\xa0", " ")
     text = text.replace("&#39;", "'")
     text = text.replace("&quot;", '"')
     text = text.replace("&amp;", "&")
@@ -118,14 +70,28 @@ def clean_text(text: str) -> str:
     return text
 
 
-def is_valid_quote(quote_text: str, author: str) -> bool:
-    if not quote_text or not author:
+def is_valid_author(text: str) -> bool:
+    if not text:
         return False
-    if len(quote_text) < 15:
+    if len(text) < 2 or len(text) > 60:
         return False
-    if len(quote_text) > 400:
+    if any(x in text.lower() for x in ["prev", "next", "grid", "list", "topics", "quotes"]):
         return False
-    if author.lower() in {"grid", "list", "prev", "next"}:
+    return True
+
+
+def is_valid_quote(text: str) -> bool:
+    if not text:
+        return False
+    if len(text) < 15 or len(text) > 400:
+        return False
+    junk = [
+        "please enable javascript",
+        "this site requires javascript",
+        "quote of the day",
+        "recommended topics",
+    ]
+    if any(x in text.lower() for x in junk):
         return False
     return True
 
@@ -142,6 +108,46 @@ def dedupe_quotes(quotes: list[dict]) -> list[dict]:
         deduped.append(q)
 
     return deduped
+
+
+def extract_quotes_from_html(html: str) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Collect visible anchor text in page order.
+    anchors = []
+    for a in soup.find_all("a"):
+        text = clean_text(a.get_text(" ", strip=True))
+        href = a.get("href", "")
+        if text:
+            anchors.append({"text": text, "href": href})
+
+    quotes = []
+
+    # Heuristic: on the current page, quote text is followed by author text.
+    # We treat a longer sentence-like anchor followed by a shorter author-like anchor as a pair.
+    for i in range(len(anchors) - 1):
+        first = anchors[i]["text"]
+        second = anchors[i + 1]["text"]
+
+        if not is_valid_quote(first):
+            continue
+        if not is_valid_author(second):
+            continue
+
+        # Quote should look more sentence-like than author.
+        if len(second) >= len(first):
+            continue
+
+        # Avoid pairing obvious navigation items.
+        if second.lower() in {"home", "authors", "topics"}:
+            continue
+
+        quotes.append({
+            "text": first.strip(" “”\""),
+            "author": second.strip(),
+        })
+
+    return dedupe_quotes(quotes)
 
 
 def collect_quotes(max_pages: int = 5) -> list[dict]:
