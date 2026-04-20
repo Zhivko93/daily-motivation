@@ -2,7 +2,8 @@ name: Daily Motivational Quote
 
 on:
   schedule:
-    - cron: "0 5 * * *"
+    - cron: "7 7 * * *"
+      timezone: "Europe/Amsterdam"
   workflow_dispatch:
 
 jobs:
