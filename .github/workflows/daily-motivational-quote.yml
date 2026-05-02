@@ -2,8 +2,8 @@ name: Daily Motivational Quote
 
 on:
   schedule:
-    - cron: "7 7 * * *"
-      timezone: "Europe/Amsterdam"
+    # GitHub Actions cron uses UTC. Match the random-space-fact workflow schedule.
+    - cron: "0 4 * * *"
   workflow_dispatch:
 
 jobs:
