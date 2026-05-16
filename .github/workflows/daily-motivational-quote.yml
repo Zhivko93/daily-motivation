@@ -2,8 +2,8 @@ name: Daily Motivational Quote
 
 on:
   schedule:
-    # GitHub Actions cron uses UTC. Match the random-space-fact workflow schedule.
-    - cron: "0 4 * * *"
+    # GitHub Actions cron uses UTC. Run weekly on Monday morning in Central Europe.
+    - cron: "0 4 * * 1"
   workflow_dispatch:
 
 jobs:
