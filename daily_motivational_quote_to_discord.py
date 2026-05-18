@@ -75,7 +75,7 @@ def fetch_unsent_quote(sent_quotes: set[str], max_attempts: int = 20) -> tuple[d
 
 
 def send_to_discord(webhook_url: str, quote: dict) -> None:
-    message = f'💬 **Daily motivational quote**\n\n"{quote["text"]}"\n— *{quote["author"]}*'
+    message = f'💬 **Weekly motivational quote**\n\n"{quote["text"]}"\n— *{quote["author"]}*'
 
     response = requests.post(
         webhook_url,
